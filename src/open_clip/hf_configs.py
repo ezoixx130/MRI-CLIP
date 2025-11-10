@@ -53,6 +53,17 @@ arch_dict = {
         },
         "pooler": "cls_pooler",
     },
+    # https://huggingface.co/docs/transformers/model_doc/distilbert
+    "distilbert": {
+        "config_names": {
+            "context_length": "max_position_embeddings",
+            "vocab_size": "vocab_size",
+            "width": "dim",
+            "heads": "n_heads",
+            "layers": "n_layers",
+        },
+        "pooler": "cls_pooler",
+    },
     # https://huggingface.co/docs/transformers/model_doc/m2m_100
     "m2m_100": {
         "config_names": {

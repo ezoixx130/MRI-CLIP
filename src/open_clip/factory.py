@@ -14,10 +14,12 @@ from .convert import convert_state_dict
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype, resize_text_pos_embed, set_model_preprocess_cfg
 from .coca_model import CoCa
+from .medsiglip_model import MedSigLip
+# from .biomedgpt_model import BioMedGPT ## conflict!! transformers=4.18 too old
 from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained,\
     list_pretrained_tags_by_model, download_pretrained_from_hf
-from .transform import image_transform_v2, AugmentationCfg, PreprocessCfg, merge_preprocess_dict, merge_preprocess_kwargs
+from .transform import image_transform_v2, custom_transform, AugmentationCfg, PreprocessCfg, merge_preprocess_dict, merge_preprocess_kwargs
 from .tokenizer import HFTokenizer, SimpleTokenizer, SigLipTokenizer, DEFAULT_CONTEXT_LENGTH
 
 HF_HUB_PREFIX = 'hf-hub:'
@@ -343,7 +345,12 @@ def create_model(
     custom_text = model_cfg.pop('custom_text', False) or force_custom_text or is_hf_model
 
     model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
-    if custom_text:
+    # print("❗Model config:", model_cfg)
+    if "medsiglip_id" in model_cfg:
+        model = MedSigLip(**model_cfg, cast_dtype=cast_dtype, output_dict=output_dict)
+    elif "biomedgpt_path" in model_cfg:
+        model = BioMedGPT(**model_cfg, cast_dtype=cast_dtype, output_dict=output_dict)
+    elif custom_text:
         if "multimodal_cfg" in model_cfg:
             model = CoCa(**model_cfg, cast_dtype=cast_dtype)
         else:
@@ -422,10 +429,11 @@ def create_model(
         model = torch.jit.script(model)
 
     # set image preprocessing configuration in model attributes for convenience
-    if getattr(model.visual, 'image_size', None) is not None:
+    if getattr(model, 'visual', None) is not None and getattr(model.visual, 'image_size', None) is not None:
         # use image_size set on model creation (via config or force_image_size arg)
         force_preprocess_cfg['size'] = model.visual.image_size
-    set_model_preprocess_cfg(model, merge_preprocess_dict(preprocess_cfg, force_preprocess_cfg))
+    if getattr(model, 'visual', None) is not None:
+        set_model_preprocess_cfg(model, merge_preprocess_dict(preprocess_cfg, force_preprocess_cfg))
 
     return model
 
@@ -517,18 +525,30 @@ def create_model_and_transforms(
         load_weights_only=load_weights_only,
         **model_kwargs,
     )
+    
+    if model_name.startswith("DINOv2"):
+        IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+        IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
 
-    pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
+        model.visual.preprocess_cfg = merge_preprocess_dict(model.visual.preprocess_cfg, {"mean": IMAGENET_DEFAULT_MEAN, "std": IMAGENET_DEFAULT_STD})
+        preprocess_train, preprocess_val = custom_transform(PreprocessCfg(**model.visual.preprocess_cfg))
+        
+    elif getattr(model, 'visual', None) is not None and getattr(model.visual, 'preprocess_cfg', None) is not None:
+        pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
 
-    preprocess_train = image_transform_v2(
-        pp_cfg,
-        is_train=True,
-        aug_cfg=aug_cfg,
-    )
-    preprocess_val = image_transform_v2(
-        pp_cfg,
-        is_train=False,
-    )
+        preprocess_train = image_transform_v2(
+            pp_cfg,
+            is_train=True,
+            aug_cfg=aug_cfg,
+        )
+        preprocess_val = image_transform_v2(
+            pp_cfg,
+            is_train=False,
+        )
+    
+    else:
+        preprocess_train, preprocess_val = None, None
+        print("Warning: No preprocess_cfg found in model, returning None for transforms.")
 
     return model, preprocess_train, preprocess_val
 

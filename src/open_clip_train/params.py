@@ -61,7 +61,7 @@ def parse_args(args):
     )
     parser.add_argument(
         "--dataset-type",
-        choices=["webdataset", "csv", "synthetic", "auto"],
+        choices=["webdataset", "csv", "synthetic", "custom", "eval", "medsiglip", "biomedgpt", "auto"],
         default="auto",
         help="Which type of dataset to process."
     )
@@ -108,7 +108,7 @@ def parse_args(args):
         help="Override system default cache path for model & tokenizer file downloads.",
     )
     parser.add_argument(
-        "--logs",
+        "--logs-dir",
         type=str,
         default="./logs/",
         help="Where to store tensorboard logs. Use None to avoid storing logs.",
@@ -277,6 +277,10 @@ def parse_args(args):
     parser.add_argument(
         '--force-image-size', type=int, nargs='+', default=None,
         help='Override default image size'
+    )
+    parser.add_argument(
+        '--max_patient_imgs_length', type=int, default=64,
+        help='Maximum number of images in a patient record. Used for padding.'
     )
     parser.add_argument(
         "--force-quick-gelu",

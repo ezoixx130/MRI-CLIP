@@ -405,3 +405,16 @@ def image_transform_v2(
         fill_color=cfg.fill_color,
         aug_cfg=aug_cfg,
     )
+
+def custom_transform(cfg: PreprocessCfg):
+    """
+    Custom transform function that applies preprocessing based on the provided configuration.
+    """
+    mean = cfg.mean or OPENAI_DATASET_MEAN
+    if not isinstance(mean, (list, tuple)):
+        mean = (mean,) * 3
+    std = cfg.std or OPENAI_DATASET_STD
+    if not isinstance(std, (list, tuple)):
+        std = (std,) * 3
+    normalize = Normalize(mean=mean, std=std)
+    return Compose([ToTensor(), normalize]), Compose([ToTensor(), normalize])

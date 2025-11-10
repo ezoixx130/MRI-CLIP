@@ -20,6 +20,7 @@ from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
 from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer,\
     text_global_pool
+from .dinov2 import DINOv2
 from .utils import to_2tuple
 
 
@@ -53,6 +54,8 @@ class CLIPVisionCfg:
     timm_drop: float = 0.  # head dropout
     timm_drop_path: Optional[float] = None  # backbone stochastic depth
 
+    dinov2_cfg: Optional[str] = None  # path to DINOv2 config file
+    dinov2_pretrained: Optional[str] = None  # path to DINOv2 pretrained weights
 
 @dataclass
 class CLIPTextCfg:
@@ -116,7 +119,14 @@ def _build_vision_tower(
     # NOTE: timm models always use native GELU regardless of quick_gelu flag.
     act_layer = QuickGELU if quick_gelu else nn.GELU
 
-    if vision_cfg.timm_model_name:
+    if vision_cfg.dinov2_cfg is not None:
+        visual = DINOv2(
+            config_path=vision_cfg.dinov2_cfg,
+            image_size=vision_cfg.image_size,
+            pretrained=vision_cfg.dinov2_pretrained,
+            embed_dim=embed_dim,
+        )
+    elif vision_cfg.timm_model_name:
         visual = TimmModel(
             vision_cfg.timm_model_name,
             pretrained=vision_cfg.timm_model_pretrained,

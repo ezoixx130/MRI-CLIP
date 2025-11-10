@@ -1,0 +1,16 @@
+{
+    "embed_dim": 1024,
+    "vision_cfg": {
+        "dinov2_cfg": "open_clip/dinov2_modules/configs/train/vitl14_lbsz48_short.yaml",
+        "dinov2_pretrained": "/home/hzhanguw/research-projects/open_clip/t2_dinov2_ckpt/dinov2_pretrain.pth",
+        "image_size": 224,
+        "width": 1024,
+        "patch_size": 14
+    },
+    "text_cfg": {
+        "hf_model_name": "microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract",
+        "hf_tokenizer_name": "microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract",
+        "hf_pooler_type": "mean_pooler",
+        "context_length": 512
+    }
+}

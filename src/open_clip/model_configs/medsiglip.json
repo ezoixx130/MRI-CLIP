@@ -1,0 +1,6 @@
+{
+    "embed_dim": 1152,
+    "medsiglip_id": "google/medsiglip-448",
+    "vision_cfg": {},
+    "text_cfg": {}
+}

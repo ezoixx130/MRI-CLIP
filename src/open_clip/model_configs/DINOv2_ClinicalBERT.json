@@ -1,0 +1,15 @@
+{
+    "embed_dim": 1024,
+    "vision_cfg": {
+        "dinov2_cfg": "open_clip/dinov2_modules/configs/train/vitl16_lbsz48_short.yaml",
+        "dinov2_pretrained": "/home/hzhanguw/research-projects/open_clip/dinov2_ckpt/dinov2_pretrain.pth",
+        "image_size": 256,
+        "width": 1024,
+        "patch_size": 16
+    },
+    "text_cfg": {
+        "hf_model_name": "medicalai/ClinicalBERT",
+        "hf_tokenizer_name": "medicalai/ClinicalBERT",
+        "hf_pooler_type": "mean_pooler"
+    }
+}

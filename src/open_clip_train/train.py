@@ -90,8 +90,14 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
             scheduler(step)
 
         images, texts = batch
-        images = images.to(device=device, dtype=input_dtype, non_blocking=True)
-        texts = texts.to(device=device, non_blocking=True)
+        if not isinstance(images, (list, tuple)):
+            images = images.to(device=device, dtype=input_dtype, non_blocking=True)
+        else:
+            images[0] = images[0].to(device=device, dtype=input_dtype, non_blocking=True)
+            images[1] = images[1].to(device=device, dtype=input_dtype, non_blocking=True)
+            
+        if isinstance(texts, torch.Tensor):
+            texts = texts.to(device=device, non_blocking=True)
 
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
@@ -192,7 +198,10 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
         end = time.time()
         batch_count = i_accum + 1
         if is_master(args) and (i_accum % args.log_every_n_steps == 0 or batch_count == num_batches_per_epoch):
-            batch_size = len(images)
+            if not isinstance(images, (list, tuple)):
+                batch_size = len(images)
+            else:
+                batch_size = images[0].shape[0]
             num_samples = batch_count * batch_size * args.accum_freq * args.world_size
             samples_per_epoch = dataloader.num_samples
             percent_complete = 100.0 * batch_count / num_batches_per_epoch
@@ -271,17 +280,61 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
         cumulative_loss = 0.0
         cumulative_gen_loss = 0.0
         all_image_features, all_text_features = [], []
+
+
+        data_mean = torch.tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1).to(args.device)
+        data_std = torch.tensor((0.229, 0.224, 0.225)).view(1, 3, 1, 1).to(args.device)
+        model_mean = None
+        model_std = None
+        if getattr(model, "visual", None) is not None and getattr(model.visual, "image_mean", None) is not None:
+            model_mean = torch.tensor(model.visual.image_mean).view(1, 3, 1, 1).to(args.device)
+            model_std = torch.tensor(model.visual.image_std).view(1, 3, 1, 1).to(args.device)
+            print(f"Model mean: {model.visual.image_mean}, Model std: {model.visual.image_std}")
+        need_denormalize = False
         with torch.inference_mode():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
-                images = images.to(device=device, dtype=input_dtype, non_blocking=True)
-                texts = texts.to(device=device, non_blocking=True)
+
+                if not isinstance(images, (list, tuple)):
+                    images = images.to(device=device, dtype=input_dtype, non_blocking=True)
+                else:
+                    images[0] = images[0].to(device=device, dtype=input_dtype, non_blocking=True)
+                    images[1] = images[1].to(device=device, dtype=input_dtype, non_blocking=True)
+                if isinstance(texts, torch.Tensor):
+                    texts = texts.to(device=device, non_blocking=True)
 
                 with autocast():
+                    reshaped = False
+                    if isinstance(images, (list, tuple)) and "DINOv2" not in args.model:
+                        reshaped = True
+                        assert len(images) == 2, "Images should be a tuple of (images, mask)"
+                        assert len(images[0].shape) == 5, "The input should be 5D"
+                        B, N, C, H, W = images[0].shape
+                        masks = images[1]
+                        original_images = images.copy()
+                        images = images[0].reshape(B * N, C, H, W)
+                        if need_denormalize:
+                            if i % 100 < 5:
+                                print(f"Before denormalize: {images.min()} {images.max()}")
+                            images = images * data_std + data_mean
+                            if i % 100 < 5:
+                                print(f"After denormalize: {images.min()} {images.max()}")
+                        if model_mean is not None and model_std is not None:
+                            images = (images - model_mean) / model_std
+                            if i % 100 < 5:
+                                print(f"After model normalize: {images.min()} {images.max()}")
+                            
                     model_out = model(images, texts)
                     image_features = model_out["image_features"]
                     text_features = model_out["text_features"]
                     logit_scale = model_out["logit_scale"]
+                    
+                    if reshaped:
+                        # reshape back to [B, N, hidden_dim]
+                        image_features = image_features.view(B, N, -1)
+                        image_features = image_features * masks.unsqueeze(-1)
+                        image_features = image_features.sum(dim=1) / masks.sum(dim=1, keepdim=True)
+                        images = original_images
                     # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
                     # however, system RAM is easily exceeded and compute time becomes problematic
                     all_image_features.append(image_features.cpu())
@@ -290,7 +343,10 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
                     logits_per_image = logit_scale * image_features @ text_features.t()
                     logits_per_text = logits_per_image.t()
 
-                    batch_size = images.shape[0]
+                    if isinstance(images, (list, tuple)):
+                        batch_size = images[0].shape[0]
+                    else:
+                        batch_size = images.shape[0]
                     labels = torch.arange(batch_size, device=device).long()
                     total_loss = (
                         F.cross_entropy(logits_per_image, labels) +
@@ -326,6 +382,17 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
 
     if not metrics:
         return metrics
+
+    img_to_txt_pred = metrics.pop("image_to_text_pred", None)
+    txt_to_img_pred = metrics.pop("text_to_image_pred", None)
+    with open(os.path.join(args.checkpoint_path, "rank.jsonl"), "a+") as f:
+        rank_data = {
+            "epoch": epoch,
+            "image_to_text_pred": img_to_txt_pred.tolist() if img_to_txt_pred is not None else None,
+            "text_to_image_pred": txt_to_img_pred.tolist() if txt_to_img_pred is not None else None
+        }
+        f.write(json.dumps(rank_data))
+        f.write("\n")
 
     logging.info(
         f"Eval Epoch: {epoch} "
@@ -369,6 +436,7 @@ def get_clip_metrics(image_features, text_features, logit_scale):
         ranking = torch.argsort(logit, descending=True)
         preds = torch.where(ranking == ground_truth)[1]
         preds = preds.detach().cpu().numpy()
+        metrics[f"{name}_pred"] = preds + 1
         metrics[f"{name}_mean_rank"] = preds.mean() + 1
         metrics[f"{name}_median_rank"] = np.floor(np.median(preds)) + 1
         for k in [1, 5, 10]:

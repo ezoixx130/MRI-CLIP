@@ -151,3 +151,6 @@ core.*
 
 # Allow
 !src/evaluation/misc/results_dbs/*
+
+dinov2_ckpt/
+t2_dinov2_ckpt/

@@ -12,9 +12,11 @@ from multiprocessing import Value
 import numpy as np
 import pandas as pd
 import torch
+from torch.nn.functional import interpolate
 import torchvision.datasets as datasets
+from torchvision import transforms
 import webdataset as wds
-from PIL import Image
+from PIL import Image, ImageOps
 from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler, IterableDataset, get_worker_info
 from torch.utils.data.distributed import DistributedSampler
 from webdataset.filters import _shuffle
@@ -46,6 +48,182 @@ class CsvDataset(Dataset):
         texts = self.tokenize([str(self.captions[idx])])[0]
         return images, texts
 
+
+class CustomDataset(Dataset):
+    def __init__(self, input_filename, transform, image_key, report_key, sep=",", tokenizer=None, max_length=64):
+        logging.debug(f'Loading custom json data from {input_filename}.')
+        if not os.path.exists(input_filename):
+            raise FileNotFoundError(f"Input file {input_filename} does not exist.")
+        with open(input_filename, 'r') as f:
+            data = json.load(f)
+        self.image_paths = [item[image_key] for item in data.values()]
+        self.reports = [str(item[report_key]) for item in data.values()]
+        # df = pd.read_csv(input_filename, sep=sep)
+        # self.image_paths = df[image_key].tolist()
+        # self.reports = df[report_key].tolist()
+        self.transform = transform
+        logging.debug('Loaded data.')
+        
+        self.tokenize = tokenizer
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.reports)
+
+    def __getitem__(self, idx):
+        # imgs = []
+
+        # for pic in self.image_paths[idx]:
+        #     img = Image.open(pic).convert('RGB')
+        
+        #     # padding and resize
+        #     width, height = img.size
+        #     max_dim = max(width, height)
+        #     pad_left = (max_dim - width) // 2
+        #     pad_top = (max_dim - height) // 2
+        #     pad_right = max_dim - width - pad_left
+        #     pad_bottom = max_dim - height - pad_top
+        #     img_padded = ImageOps.expand(img, border=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
+        #     img_resized = img_padded.resize((224,224), Image.BICUBIC)
+            
+        #     img = self.transform(img_resized)
+
+        #     imgs.append(img)
+        
+        # if len(imgs) > self.max_length:
+        #     # If there are more images than max_length, randomly select max_length images
+        #     indices = np.random.choice(len(imgs), self.max_length, replace=False)
+        #     imgs = [imgs[i] for i in indices]
+        # imgs = torch.stack(imgs)
+
+        imgs = torch.load(self.image_paths[idx])
+        assert len(imgs.shape) == 4 
+
+        IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+        IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
+        mean = IMAGENET_DEFAULT_MEAN
+        std = IMAGENET_DEFAULT_STD
+        normalize = transforms.Normalize(mean=mean, std=std)
+        # imgs = normalize(imgs)
+
+        if imgs.shape[0] > self.max_length:
+            # If there are more images than max_length, randomly select max_length images
+            indices = np.random.choice(imgs.shape[0], self.max_length, replace=False)
+            imgs = imgs[indices]
+
+        texts = self.tokenize([str(self.reports[idx])])[0]
+        return {
+            'images': imgs,
+            'text': texts
+        }
+
+class MedSigLipDataset(CustomDataset):
+    def __init__(self, input_filename, transform, image_key, report_key, sep=",", tokenizer=None, max_length=64):
+        super().__init__(input_filename, transform, image_key, report_key, sep, tokenizer, max_length)
+    def __getitem__(self, idx):
+        imgs = torch.load(self.image_paths[idx])
+        assert len(imgs.shape) == 4 
+
+        IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+        IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
+        mean = IMAGENET_DEFAULT_MEAN
+        std = IMAGENET_DEFAULT_STD
+        normalize = transforms.Normalize(mean=mean, std=std)
+        # imgs = normalize(imgs)
+
+        if imgs.shape[0] > self.max_length:
+            # If there are more images than max_length, randomly select max_length images
+            indices = np.random.choice(imgs.shape[0], self.max_length, replace=False)
+            imgs = imgs[indices]
+
+        # texts = self.tokenize([str(self.reports[idx])])[0]
+        text = self.reports[idx]
+        return {
+            'images': imgs,
+            'text': text
+        }
+
+# class BioMedGPTDataset(CustomDataset):
+#     def __init__(self, input_filename, transform, image_key, report_key, sep=",", tokenizer=None, max_length=64):
+#         super().__init__(input_filename, transform, image_key, report_key, sep, tokenizer, max_length)
+#     def __getitem__(self, idx):
+#         imgs = torch.load(self.image_paths[idx])
+#         assert len(imgs.shape) == 4 
+
+#         imgs = interpolate(imgs, size=(480, 480), mode='bilinear')
+
+#         mean, std = (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+#         normalize = transforms.Normalize(mean=mean, std=std)
+#         # imgs = normalize(imgs)
+
+#         if imgs.shape[0] > self.max_length:
+#             # If there are more images than max_length, randomly select max_length images
+#             indices = np.random.choice(imgs.shape[0], self.max_length, replace=False)
+#             imgs = imgs[indices]
+
+#         text = self.tokenize([str(self.reports[idx])], return_tensors="pt").input_ids
+#         return {
+#             'images': imgs,
+#             'text': text
+#         }
+
+class EvalDataset(Dataset):
+    def __init__(self, input_filename, transform, image_key, report_key, sep=",", tokenizer=None, max_length=64):
+        logging.debug(f'Loading custom json data from {input_filename}.')
+        if not os.path.exists(input_filename):
+            raise FileNotFoundError(f"Input file {input_filename} does not exist.")
+        with open(input_filename, 'r') as f:
+            data = json.load(f)
+        self.image_paths = [item[image_key] for item in data.values()]
+        self.reports = [item[report_key] for item in data.values()]
+        # df = pd.read_csv(input_filename, sep=sep)
+        # self.image_paths = df[image_key].tolist()
+        # self.reports = df[report_key].tolist()
+        self.transform = transform
+        logging.debug('Loaded data.')
+        
+        self.tokenize = tokenizer
+        self.max_length = max_length
+
+    def __len__(self):
+        return len(self.reports)
+
+    def __getitem__(self, idx):
+        # imgs = []
+
+        # for pic in self.image_paths[idx]:
+        #     img = Image.open(pic).convert('RGB')
+        
+        #     # padding and resize
+        #     width, height = img.size
+        #     max_dim = max(width, height)
+        #     pad_left = (max_dim - width) // 2
+        #     pad_top = (max_dim - height) // 2
+        #     pad_right = max_dim - width - pad_left
+        #     pad_bottom = max_dim - height - pad_top
+        #     img_padded = ImageOps.expand(img, border=(pad_left, pad_top, pad_right, pad_bottom), fill=0)
+        #     img_resized = img_padded.resize((224,224), Image.BICUBIC)
+            
+        #     img = self.transform(img_resized)
+
+        #     imgs.append(img)
+        
+        # if len(imgs) > self.max_length:
+        #     # If there are more images than max_length, randomly select max_length images
+        #     indices = np.random.choice(len(imgs), self.max_length, replace=False)
+        #     imgs = [imgs[i] for i in indices]
+        # imgs = torch.stack(imgs)
+
+        imgs = torch.load(self.image_paths[idx])
+        assert len(imgs.shape) == 4 
+        imgs = imgs[0]
+        # if imgs.shape[0] > self.max_length:
+        #     # If there are more images than max_length, randomly select max_length images
+        #     indices = np.random.choice(imgs.shape[0], self.max_length, replace=False)
+        #     imgs = imgs[indices]
+
+        texts = self.tokenize([str(self.reports[idx])])[0]
+        return imgs, texts
 
 class SharedEpoch:
     def __init__(self, epoch: int = 0):
@@ -522,6 +700,177 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
 
     return DataInfo(dataloader, sampler)
 
+def collate_fn_pad(batch):
+    # 'images': images,
+    # 'label': label
+    max_len = max([s['images'].shape[0] for s in batch])
+    padded_tensors = []
+    masks = []
+    texts = []
+    for s in batch:
+        images = s['images']
+        text = s['text']
+        padded_tensor = torch.zeros(max_len, *images.shape[1:], dtype=images.dtype)
+        padded_tensor[:images.shape[0]] = images
+        mask = torch.zeros(max_len, dtype=torch.bool)
+        mask[:images.shape[0]] = torch.ones(images.shape[0])
+        masks.append(mask)
+        padded_tensors.append(padded_tensor)
+        texts.append(text)
+
+    padded_tensors = torch.stack(padded_tensors)
+    masks = torch.stack(masks)
+    masks = masks.bool()
+    texts = torch.stack(texts)
+    return (padded_tensors, masks), texts
+
+def get_custom_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None): 
+    input_filename = args.train_data if is_train else args.val_data
+    assert input_filename
+    dataset = CustomDataset(
+        input_filename,
+        preprocess_fn,
+        image_key=args.csv_img_key,
+        report_key=args.csv_caption_key,
+        sep=args.csv_separator,
+        tokenizer=tokenizer,
+        max_length=args.max_patient_imgs_length
+    )
+    num_samples = len(dataset)
+    sampler = DistributedSampler(dataset) if args.distributed and is_train else None
+    shuffle = is_train and sampler is None
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=sampler,
+        drop_last=is_train,
+        collate_fn=collate_fn_pad
+    )
+    dataloader.num_samples = num_samples
+    dataloader.num_batches = len(dataloader)
+
+    return DataInfo(dataloader, sampler)
+
+def get_eval_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None): 
+    input_filename = args.train_data if is_train else args.val_data
+    assert input_filename
+    dataset = EvalDataset(
+        input_filename,
+        preprocess_fn,
+        image_key=args.csv_img_key,
+        report_key=args.csv_caption_key,
+        sep=args.csv_separator,
+        tokenizer=tokenizer,
+        max_length=args.max_patient_imgs_length
+    )
+    num_samples = len(dataset)
+    sampler = DistributedSampler(dataset) if args.distributed and is_train else None
+    shuffle = is_train and sampler is None
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=sampler,
+        drop_last=is_train
+    )
+    dataloader.num_samples = num_samples
+    dataloader.num_batches = len(dataloader)
+
+    return DataInfo(dataloader, sampler)
+
+def collate_fn_medsiglip(batch):
+    # 'images': images,
+    # 'label': label
+    max_len = max([s['images'].shape[0] for s in batch])
+    padded_tensors = []
+    masks = []
+    texts = []
+    for s in batch:
+        images = s['images']
+        text = s['text']
+        padded_tensor = torch.zeros(max_len, *images.shape[1:], dtype=images.dtype)
+        padded_tensor[:images.shape[0]] = images
+        mask = torch.zeros(max_len, dtype=torch.bool)
+        mask[:images.shape[0]] = torch.ones(images.shape[0])
+        masks.append(mask)
+        padded_tensors.append(padded_tensor)
+        texts.append(text)
+
+    padded_tensors = torch.stack(padded_tensors)
+    masks = torch.stack(masks)
+    masks = masks.bool()
+    # texts = torch.stack(texts)
+    return (padded_tensors, masks), texts
+
+def get_medsiglip_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
+    input_filename = args.train_data if is_train else args.val_data
+    assert input_filename
+    dataset = MedSigLipDataset(
+        input_filename,
+        preprocess_fn,
+        image_key=args.csv_img_key,
+        report_key=args.csv_caption_key,
+        sep=args.csv_separator,
+        tokenizer=tokenizer,
+        max_length=args.max_patient_imgs_length
+    )
+    num_samples = len(dataset)
+    sampler = DistributedSampler(dataset) if args.distributed and is_train else None
+    shuffle = is_train and sampler is None
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=sampler,
+        drop_last=is_train,
+        collate_fn=collate_fn_medsiglip
+    )
+    dataloader.num_samples = num_samples
+    dataloader.num_batches = len(dataloader)
+    
+    return DataInfo(dataloader, sampler)
+    
+# def get_biomedgpt_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
+#     input_filename = args.train_data if is_train else args.val_data
+#     assert input_filename
+#     dataset = BioMedGPTDataset(
+#         input_filename,
+#         preprocess_fn,
+#         image_key=args.csv_img_key,
+#         report_key=args.csv_caption_key,
+#         sep=args.csv_separator,
+#         tokenizer=tokenizer,
+#         max_length=args.max_patient_imgs_length
+#     )
+#     num_samples = len(dataset)
+#     sampler = DistributedSampler(dataset) if args.distributed and is_train else None
+#     shuffle = is_train and sampler is None
+
+#     dataloader = DataLoader(
+#         dataset,
+#         batch_size=args.batch_size,
+#         shuffle=shuffle,
+#         num_workers=args.workers,
+#         pin_memory=True,
+#         sampler=sampler,
+#         drop_last=is_train,
+#         collate_fn=collate_fn_medsiglip
+#     )
+#     dataloader.num_samples = num_samples
+#     dataloader.num_batches = len(dataloader)
+    
+#     return DataInfo(dataloader, sampler)
+
 
 def get_dataset_fn(data_path, dataset_type):
     if dataset_type == "webdataset":
@@ -530,6 +879,14 @@ def get_dataset_fn(data_path, dataset_type):
         return get_csv_dataset
     elif dataset_type == "synthetic":
         return get_synthetic_dataset
+    elif dataset_type == "custom":
+        return get_custom_dataset
+    elif dataset_type == "eval":
+        return get_eval_dataset
+    elif dataset_type == "medsiglip":
+        return get_medsiglip_dataset
+    # elif dataset_type == "biomedgpt":
+    #     return get_biomedgpt_dataset
     elif dataset_type == "auto":
         ext = data_path.split('.')[-1]
         if ext in ['csv', 'tsv']:

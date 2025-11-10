@@ -1,0 +1,6 @@
+{
+    "embed_dim": 768,
+    "biomedgpt_path": "/home/hzhanguw/research-projects/BiomedGPT-Base-Pretrained",
+    "vision_cfg": {},
+    "text_cfg": {}
+}

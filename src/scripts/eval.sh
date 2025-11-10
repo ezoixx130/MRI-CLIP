@@ -1,0 +1,22 @@
+python -m open_clip_train.main \
+    --logs-dir /home/hzhanguw/research-projects/CLIPlogs \
+    --wandb-project-name "DINOv2_CLIP" \
+    --name "eval_img60_BiomedCLIP_t2"\
+    --save-frequency 1 \
+    --accum-freq 48 \
+    --log-every-n-steps 1 \
+    --save-most-recent \
+    --report-to wandb \
+    --dataset-type custom \
+    --val-data="/home/hzhanguw/research-projects/data/t2_full_val_data.json"  \
+    --csv-img-key file \
+    --csv-caption-key text \
+    --warmup 351 \
+    --batch-size=2 \
+    --lr=6e-5 \
+    --wd=0.1 \
+    --epochs=30 \
+    --workers=8 \
+    --model hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224 \
+    --device cuda:3 \
+    --max_patient_imgs_length 60

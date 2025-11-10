@@ -100,13 +100,13 @@ def main(args):
         ])
 
     resume_latest = args.resume == 'latest'
-    log_base_path = os.path.join(args.logs, args.name)
+    log_base_path = os.path.join(args.logs_dir, args.name)
     args.log_path = None
     if is_master(args, local=args.log_local):
         os.makedirs(log_base_path, exist_ok=True)
         log_filename = f'out-{args.rank}' if args.log_local else 'out.log'
         args.log_path = os.path.join(log_base_path, log_filename)
-        if os.path.exists(args.log_path) and not resume_latest:
+        if os.path.exists(args.log_path) and len(os.listdir(os.path.join(log_base_path, "checkpoints"))) > 1 and not resume_latest:
             print(
                 "Error. Experiment already exists. Use --name {} to specify a new experiment."
             )
@@ -170,7 +170,7 @@ def main(args):
     if is_master(args) and args.remote_sync is not None:
         # first make sure it works
         result = remote_sync(
-            os.path.join(args.logs, args.name), 
+            os.path.join(args.logs_dir, args.name), 
             os.path.join(args.remote_sync, args.name), 
             args.remote_sync_protocol
         )
@@ -182,7 +182,7 @@ def main(args):
         # if all looks good, start a process to do this every args.remote_sync_frequency seconds
         remote_sync_process = start_sync_process(
             args.remote_sync_frequency,
-            os.path.join(args.logs, args.name), 
+            os.path.join(args.logs_dir, args.name), 
             os.path.join(args.remote_sync, args.name), 
             args.remote_sync_protocol
         )
@@ -281,20 +281,23 @@ def main(args):
         model.set_grad_checkpointing()
 
     if is_master(args):
-        logging.info("Model:")
-        logging.info(f"{str(model)}")
-        logging.info("Params:")
-        params_file = os.path.join(args.logs, args.name, "params.txt")
+        # logging.info("Model:")
+        # logging.info(f"{str(model)}")
+        # logging.info("Params:")
+        params_file = os.path.join(args.logs_dir, args.name, "params.txt")
         with open(params_file, "w") as f:
             for name in sorted(vars(args)):
                 val = getattr(args, name)
-                logging.info(f"  {name}: {val}")
+                # logging.info(f"  {name}: {val}")
                 f.write(f"{name}: {val}\n")
 
     if args.distributed and not args.horovod:
         if args.use_bn_sync:
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        ddp_args = {}
+        ddp_args = {
+            "find_unused_parameters": True,
+            "static_graph": True
+        }
         if args.ddp_static_graph:
             # this doesn't exist in older PyTorch, arg only added if enabled
             ddp_args['static_graph'] = True
@@ -424,7 +427,7 @@ def main(args):
             exit(1)
 
     # determine if this worker should save logs and checkpoints. only do so if it is rank == 0
-    args.save_logs = args.logs and args.logs.lower() != 'none' and is_master(args)
+    args.save_logs = args.logs_dir and args.logs_dir.lower() != 'none' and is_master(args)
     writer = None
     if args.save_logs and args.tensorboard:
         assert tensorboard is not None, "Please install tensorboard."
@@ -433,7 +436,8 @@ def main(args):
     if args.wandb and is_master(args):
         assert wandb is not None, 'Please install wandb.'
         logging.debug('Starting wandb.')
-        args.train_sz = data["train"].dataloader.num_samples
+        if args.train_data is not None:
+            args.train_sz = data["train"].dataloader.num_samples
         if args.val_data is not None:
             args.val_sz = data["val"].dataloader.num_samples
         # you will have to configure this for your project!
@@ -524,7 +528,7 @@ def main(args):
         logging.info('Final remote sync.')
         remote_sync_process.terminate()
         result = remote_sync(
-            os.path.join(args.logs, args.name), 
+            os.path.join(args.logs_dir, args.name), 
             os.path.join(args.remote_sync, args.name), 
             args.remote_sync_protocol
         )
@@ -536,7 +540,7 @@ def main(args):
 
 def copy_codebase(args):
     from shutil import copytree, ignore_patterns
-    new_code_path = os.path.join(args.logs, args.name, "code")
+    new_code_path = os.path.join(args.logs_dir, args.name, "code")
     if os.path.exists(new_code_path):
         print(
             f"Error. Experiment already exists at {new_code_path}. Use --name to specify a new experiment."
