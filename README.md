@@ -1,9 +1,8 @@
-# Open-CLIP (brief)
-
-Short README for the Open-CLIP fork extended with DINOv2 and biomedical models.
+# MRI-CLIP
 
 Purpose
-- This repo integrates DINOv2 visual backbones and biomedical multimodal variants (BiomedCLIP, BiomedGPT, MedSiglip) to train and evaluate on MRI datasets (multi-slice inputs).
+- This repo integrates DINOv2 visual backbones and biomedical multimodal variants (BiomedCLIP, BiomedGPT, MedSiglip).
+- We modified model architectures and input adapters so the models can natively process 3D MRI data (volumetric / multi-slice inputs), enabling training and evaluation on volumetric MRI studies.
 
 Quick start
 - Create a Python environment and install dependencies (torch, timm, transformers, Pillow, nibabel, etc.).
@@ -23,4 +22,4 @@ Notes
 - Do not share identifiable patient data; anonymize before sharing.
 
 Contact
-- For details about experiments, scripts, or environment used, see the full `open_clip/README.md` or ask for a pinned `requirements.txt` and example commands.
+- For details about experiments, scripts, or environment used, see the full [README_original.md](README_original.md) or ask for a pinned [requirements.txt](requirements.txt) and example commands.
